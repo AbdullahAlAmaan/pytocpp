@@ -10,6 +10,7 @@ import keyword
 from .transpiler import PyToCppTranspiler
 from .parser import PythonParser
 from .type_checker import TypeChecker
+from .ir_generator import IRGenerator
 
 
 @click.command()
@@ -50,6 +51,11 @@ from .type_checker import TypeChecker
     is_flag=True, 
     help="Only run type checking, don't transpile"
 )
+@click.option(
+    "--ir-only", 
+    is_flag=True, 
+    help="Generate IR and show it, don't transpile"
+)
 def main(
     input_file: Path,
     output: Optional[Path],
@@ -59,6 +65,7 @@ def main(
     verbose: bool,
     benchmark: bool,
     type_check_only: bool,
+    ir_only: bool,
 ) -> None:
     """
     Transpile Python code to optimized C++17.
@@ -144,6 +151,45 @@ def main(
         
         if type_check_only:
             click.echo("\n✅ Type checking completed successfully!")
+            return
+        
+        # Step 3: IR Generation
+        if verbose:
+            click.echo("\n🔍 Step 3: IR Generation...")
+        
+        ir_generator = IRGenerator()
+        ir_result = ir_generator.generate(parse_result, type_result)
+        
+        if not ir_result["success"]:
+            click.echo("❌ IR generation failed!")
+            for error in ir_result.get("errors", []):
+                click.echo(f"  Error: {error}")
+            raise click.Abort()
+        
+        if verbose:
+            click.echo("✅ IR generation successful")
+            
+            # Show IR statistics
+            metadata = ir_result["metadata"]
+            click.echo(f"\n📊 IR Statistics:")
+            click.echo(f"  Functions: {metadata['functions']}")
+            click.echo(f"  Basic blocks: {metadata['basic_blocks']}")
+            click.echo(f"  Temporary variables: {metadata['temp_vars_used']}")
+            
+            # Show optimizations
+            optimizations = ir_result["optimizations"]
+            if optimizations:
+                click.echo(f"\n⚡ Applied Optimizations:")
+                for opt in optimizations:
+                    click.echo(f"  {opt['description']}")
+                    if opt.get('details'):
+                        for detail in opt['details'][:3]:  # Show first 3 details
+                            click.echo(f"    - {detail}")
+                        if len(opt['details']) > 3:
+                            click.echo(f"    ... and {len(opt['details']) - 3} more")
+        
+        if ir_only:
+            click.echo("\n✅ IR generation completed successfully!")
             return
         
         # TODO: Implement actual transpilation (Milestone 4)
