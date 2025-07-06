@@ -55,8 +55,10 @@ def main(
     
     if verbose:
         click.echo(f"Transpiling {input_file} -> {output}")
-        click.echo(f"AI mode: {'enabled' if ai else 'disabled'}")
-        click.echo(f"Optimization level: -O{optimize}")
+    
+    # Always show key settings
+    click.echo(f"AI mode: {'enabled' if ai else 'disabled'}")
+    click.echo(f"Optimization level: -O{optimize}")
     
     try:
         transpiler = PyToCppTranspiler(
