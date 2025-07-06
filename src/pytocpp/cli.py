@@ -5,8 +5,11 @@ Command-line interface for Py2CppAI.
 import click
 from pathlib import Path
 from typing import Optional
+import keyword
 
 from .transpiler import PyToCppTranspiler
+from .parser import PythonParser
+from .type_checker import TypeChecker
 
 
 @click.command()
@@ -20,6 +23,11 @@ from .transpiler import PyToCppTranspiler
     "--ai", 
     is_flag=True, 
     help="Enable AI-powered type inference and optimizations"
+)
+@click.option(
+    "--ollama-model",
+    default="wizardlm2:latest",
+    help="Ollama model to use for AI type inference (default: wizardlm2:latest)"
 )
 @click.option(
     "--optimize", "-O", 
@@ -37,13 +45,20 @@ from .transpiler import PyToCppTranspiler
     is_flag=True, 
     help="Run performance benchmark comparison"
 )
+@click.option(
+    "--type-check-only", 
+    is_flag=True, 
+    help="Only run type checking, don't transpile"
+)
 def main(
     input_file: Path,
     output: Optional[Path],
     ai: bool,
+    ollama_model: str,
     optimize: str,
     verbose: bool,
     benchmark: bool,
+    type_check_only: bool,
 ) -> None:
     """
     Transpile Python code to optimized C++17.
@@ -54,21 +69,85 @@ def main(
         output = input_file.with_suffix(".cpp")
     
     if verbose:
-        click.echo(f"Transpiling {input_file} -> {output}")
+        click.echo(f"Processing {input_file}")
+        if not type_check_only:
+            click.echo(f"Output will be: {output}")
     
-    # Always show key settings
-    click.echo(f"AI mode: {'enabled' if ai else 'disabled'}")
-    click.echo(f"Optimization level: -O{optimize}")
+            # Always show key settings
+        click.echo(f"AI mode: {'enabled' if ai else 'disabled'}")
+        if ai:
+            click.echo(f"Ollama model: {ollama_model}")
+        if not type_check_only:
+            click.echo(f"Optimization level: -O{optimize}")
     
     try:
-        transpiler = PyToCppTranspiler(
-            ai_enabled=ai,
-            optimization_level=int(optimize),
-            verbose=verbose
-        )
+        # Step 1: Parse the Python code
+        if verbose:
+            click.echo("\n🔍 Step 1: Parsing Python code...")
         
-        # TODO: Implement actual transpilation
-        click.echo("🚧 Transpilation not yet implemented - coming in Milestone 4!")
+        parser = PythonParser()
+        parse_result = parser.parse_file(input_file)
+        
+        if not parse_result["parse_success"]:
+            click.echo("❌ Parse failed!")
+            for error in parse_result["errors"]:
+                click.echo(f"  Error: {error}")
+            raise click.Abort()
+        
+        if verbose:
+            click.echo("✅ Parse successful")
+        
+        # Step 2: Type checking
+        if verbose:
+            click.echo("\n🔍 Step 2: Type analysis...")
+        
+        type_checker = TypeChecker(ai_enabled=ai, ollama_model=ollama_model)
+        type_result = type_checker.analyze(parse_result)
+        
+        if not type_result["success"]:
+            click.echo("❌ Type analysis failed!")
+            for error in type_result.get("errors", []):
+                click.echo(f"  Error: {error}")
+            raise click.Abort()
+        
+        # Final filter for built-ins/keywords before display
+        builtins_and_keywords = set(dir(__builtins__)) | set(keyword.kwlist)
+        def is_user_symbol(name):
+            return name.split(".")[0] not in builtins_and_keywords
+        
+        if verbose:
+            click.echo("✅ Type analysis successful")
+            
+            # Show type information
+            type_info = type_result["type_info"]
+            if type_info:
+                click.echo("\n📊 Type Information:")
+                for var_name, var_type in type_info.items():
+                    if not is_user_symbol(var_name):
+                        continue
+                    confidence = type_result["confidence_scores"].get(var_name, 0.0)
+                    click.echo(f"  {var_name}: {var_type} (confidence: {confidence:.2f})")
+            else:
+                click.echo("  No type information found")
+            
+            # Show AI suggestions if any
+            ai_suggestions = type_result.get("ai_suggestions", [])
+            if ai_suggestions:
+                click.echo("\n🤖 AI Type Suggestions:")
+                for suggestion in ai_suggestions:
+                    var_name = suggestion["variable"]
+                    if not is_user_symbol(var_name):
+                        continue
+                    var_type = suggestion["type"]
+                    confidence = suggestion["confidence"]
+                    click.echo(f"  {var_name}: {var_type} (confidence: {confidence:.2f})")
+        
+        if type_check_only:
+            click.echo("\n✅ Type checking completed successfully!")
+            return
+        
+        # TODO: Implement actual transpilation (Milestone 4)
+        click.echo("\n🚧 Transpilation not yet implemented - coming in Milestone 4!")
         click.echo(f"Would transpile: {input_file} -> {output}")
         
         if benchmark:
